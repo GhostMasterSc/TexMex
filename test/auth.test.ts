@@ -104,7 +104,7 @@ describe("Git token authentication over HTTP", () => {
     );
     const r1 = await missing.call("read_file", { project: PROJECT_ID, path: "main.tex" });
     expect(r1.isError).toBe(true);
-    expect(r1.text).toContain("OVERLEAF_GIT_TOKEN is not set");
+    expect(r1.text).toContain("No Overleaf credentials are configured");
     await missing.close();
 
     const wrong = await connect(

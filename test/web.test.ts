@@ -76,7 +76,7 @@ beforeEach(async () => {
   overleaf = new FakeOverleaf();
   overleaf.createProject();
   web = fakeWeb();
-  h = await connect(overleaf.config({ OVERLEAF_COOKIE: "good" }), { fetch: web.fetchImpl });
+  h = await connect(overleaf.config({ OVERLEAF_COOKIE: "good", OVERLEAF_SYNC_MODE: "git" }), { fetch: web.fetchImpl });
 });
 
 afterEach(async () => {
@@ -135,7 +135,7 @@ describe("with a session cookie", () => {
 
 describe("with an expired cookie", () => {
   it("explains how to refresh it", async () => {
-    const expired = await connect(overleaf.config({ OVERLEAF_COOKIE: "stale" }), { fetch: web.fetchImpl });
+    const expired = await connect(overleaf.config({ OVERLEAF_COOKIE: "stale", OVERLEAF_SYNC_MODE: "git" }), { fetch: web.fetchImpl });
     const r = await expired.call("compile", { project: PROJECT_ID, where: "overleaf" });
     expect(r.isError).toBe(true);
     expect(r.text).toContain("session cookie is invalid or has expired");

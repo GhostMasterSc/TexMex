@@ -9,12 +9,14 @@ const HELP = `TexMex ${VERSION} — Overleaf MCP server for Claude, Codex and ot
 
 Usage:
   texmex-mcp                 Run the MCP server on stdio (what MCP clients launch)
-  texmex-mcp check [project] Check the configuration (and Git access to a project)
+  texmex-mcp check [project] Check the configuration (and access to a project)
   texmex-mcp --version
 
 Environment:
-  OVERLEAF_GIT_TOKEN   Overleaf Git token (Account Settings → Git Integration). Required.
-  OVERLEAF_COOKIE      Optional overleaf_session2 cookie: list projects by name, compile on Overleaf.
+  OVERLEAF_COOKIE      Your overleaf_session2 browser cookie. Enough on its own (free accounts):
+                       sync, edit, push, list projects by name, compile on Overleaf.
+  OVERLEAF_GIT_TOKEN   Optional Overleaf Git token (paid plans): sync through the Git bridge instead.
+  OVERLEAF_SYNC_MODE   "auto" (default: git if a token is set, else cookie), "git" or "web".
   OVERLEAF_PROJECTS    Optional aliases, e.g. "thesis=<id>,paper=<id>".
   OVERLEAF_URL         Overleaf URL (default https://www.overleaf.com; set for Server Pro).
   OVERLEAF_GIT_URL     Git bridge URL (default https://git.overleaf.com, or <OVERLEAF_URL>/git).
@@ -30,7 +32,7 @@ async function serve(): Promise<void> {
   await server.connect(transport);
   // stdout carries the MCP protocol; diagnostics go to stderr.
   console.error(
-    `TexMex ${VERSION} running on stdio (working copies in ${config.workdir}${config.readOnly ? ", read-only" : ""}${config.gitToken ? "" : ", WARNING: OVERLEAF_GIT_TOKEN not set"})`,
+    `TexMex ${VERSION} running on stdio (working copies in ${config.workdir}${config.readOnly ? ", read-only" : ""}${config.gitToken || config.cookie ? "" : ", WARNING: set OVERLEAF_COOKIE or OVERLEAF_GIT_TOKEN"})`,
   );
 }
 

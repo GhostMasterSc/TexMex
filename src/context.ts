@@ -87,7 +87,7 @@ export class TexMex {
   workspace(id: string): Workspace {
     let ws = this.workspaces.get(id);
     if (!ws) {
-      ws = new Workspace(this.config, this.git, id);
+      ws = new Workspace(this.config, this.git, id, this.web);
       this.workspaces.set(id, ws);
     }
     return ws;

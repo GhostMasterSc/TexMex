@@ -24,23 +24,37 @@ Agent: sync_project → compile → read_file/edit_file → compile → get_diff
 - **Collaborate safely**: edits stay local until you push; Overleaf changes by co-authors are merged
   automatically, and real conflicts are surfaced as standard conflict markers for the agent to resolve.
 
+## Do I need to host a server?
+
+No. TexMex runs **on your own computer**: Claude Code, Codex or Claude Desktop start it automatically
+as a small background process when they launch and talk to it over stdin/stdout. There is nothing to
+deploy and nothing to pay for — you only need Node.js installed. (The MCP server is not reachable from
+the internet; the claude.ai website and phone apps cannot use it.)
+
 ## How it works
 
-Overleaf offers a [Git integration](https://www.overleaf.com/learn/how-to/Git_integration): every
-project can be cloned from `https://git.overleaf.com/<project-id>`. TexMex keeps a local working copy of
-each project (in `~/.texmex/projects/<id>`), the agent's tools operate on it, and `push_changes` commits
-and pushes to Overleaf, merging any edits made on Overleaf in the meantime. Edits made in the Overleaf
-editor appear in the project's Git history, so TexMex picks them up on the next sync (tools also re-fetch
-automatically every few minutes).
+TexMex keeps a local working copy of each project (in `~/.texmex/projects/<id>`); the agent's tools
+operate on that copy, and nothing reaches Overleaf until `push_changes`. Before pushing, TexMex fetches
+Overleaf's latest version and merges your co-authors' edits, so it never overwrites work done on
+Overleaf. There are two ways to talk to Overleaf:
 
-Things Git cannot do — listing your projects by name and compiling on Overleaf — use an optional
-browser session cookie.
+| | **Free** (session cookie) | **Git bridge** (Git token) |
+| --- | --- | --- |
+| Overleaf plan | any, including **free** | paid plans / institutional licenses / Server Pro |
+| Credential | `OVERLEAF_COOKIE` (your browser session) | `OVERLEAF_GIT_TOKEN` (+ optional cookie) |
+| Download | the editor's *Download → Source* zip | `git fetch` |
+| Upload | the editor's *Upload* feature, one changed file at a time; deletions via the file tree | `git push` (one commit) |
+| History (`get_history`) | versions TexMex downloaded or pushed | Overleaf's full Git history |
+| Stability | uses the Overleaf editor's own, undocumented endpoints; may break if Overleaf changes them | official, documented feature |
+
+TexMex picks the Git bridge when a token is set and the free route otherwise (override with
+`OVERLEAF_SYNC_MODE`). Both give the agent the same tools. Listing projects by name and compiling on
+Overleaf always use the cookie.
 
 ## Requirements
 
-- **Node.js 20+** and **git**.
-- An Overleaf account with **Git integration**. This is a premium feature on overleaf.com (included in
-  paid plans and most institutional licenses) and is available on Overleaf Server Pro.
+- **Node.js 20+** and **git** (git is used for the local working copies in both modes).
+- An Overleaf account — the free plan works.
 - Optional: a TeX distribution with `latexmk` (TeX Live, MacTeX or MiKTeX) for local compiles.
 
 ## Installation
@@ -56,33 +70,37 @@ The server entry point is `dist/index.js`. Use its **absolute path** in the clie
 
 ## Credentials
 
-### Git token (required)
+### Session cookie (free — all you need)
 
-In Overleaf open **Account Settings → Git Integration → Generate token** and copy the token (it starts
-with `olp_`). Provide it to TexMex as `OVERLEAF_GIT_TOKEN`. The token is sent only to the Overleaf Git
-host; it is never written into the working copies' `.git/config`.
+Log in to [overleaf.com](https://www.overleaf.com) in your browser, open the developer tools (F12) →
+*Application* (Chrome/Edge) or *Storage* (Firefox) → *Cookies* → `https://www.overleaf.com`, and copy
+the **value** of `overleaf_session2`. Provide it to TexMex as `OVERLEAF_COOKIE`.
 
-### Session cookie (optional)
+> The cookie works like your password while that browser session lasts. Keep it out of files you
+> commit, never share it, and log out of that browser session to revoke it. Sessions last a few days;
+> when yours expires (or you log out), TexMex tells you and you copy a fresh value.
 
-Setting `OVERLEAF_COOKIE` enables `list_projects` for your whole account, referring to projects by
-name, and compiling on Overleaf. To get it: log in to Overleaf in your browser, open the developer tools
-→ *Application* (Chrome) or *Storage* (Firefox) → *Cookies* → `https://www.overleaf.com`, and copy the
-value of `overleaf_session2`.
+Self-hosted Overleaf (Community Edition / Server Pro) names the cookie `overleaf.sid` by default; pass
+it as `OVERLEAF_COOKIE="overleaf.sid=<value>"` and set `OVERLEAF_URL`.
 
-> The cookie is as powerful as your password for as long as the session lives. Keep it out of files you
-> commit, and log out of that browser session to revoke it. The web endpoints TexMex uses are the ones
-> the Overleaf editor uses; they are not an official API and may change.
+### Git token (optional, paid plans)
+
+If your plan includes Git integration you can use it instead: **Account Settings → Git Integration →
+Generate token** (starts with `olp_`), provided as `OVERLEAF_GIT_TOKEN`. The token is sent only to the
+Overleaf Git host and is never written into the working copies' `.git/config`. Add the cookie as well
+if you want to list projects by name and compile on Overleaf.
 
 ## Connect it to your agent
 
-In the examples, replace `/path/to/TexMex` with the absolute path of your clone.
+In the examples, replace `/path/to/TexMex` with the absolute path of your clone and
+`your_cookie_value` with the `overleaf_session2` value. (Git-token users: use
+`OVERLEAF_GIT_TOKEN=olp_…` in addition or instead.)
 
 ### Claude Code
 
 ```bash
 claude mcp add overleaf --scope user \
-  --env OVERLEAF_GIT_TOKEN=olp_your_token \
-  --env OVERLEAF_COOKIE=your_overleaf_session2_value \
+  --env OVERLEAF_COOKIE=your_cookie_value \
   -- node /path/to/TexMex/dist/index.js
 ```
 
@@ -95,10 +113,7 @@ environment, so no secrets are committed):
     "overleaf": {
       "command": "node",
       "args": ["/path/to/TexMex/dist/index.js"],
-      "env": {
-        "OVERLEAF_GIT_TOKEN": "${OVERLEAF_GIT_TOKEN}",
-        "OVERLEAF_COOKIE": "${OVERLEAF_COOKIE}"
-      }
+      "env": { "OVERLEAF_COOKIE": "${OVERLEAF_COOKIE}" }
     }
   }
 }
@@ -111,8 +126,7 @@ are available as `/mcp__overleaf__fix_compile_errors` and `/mcp__overleaf__revie
 
 ```bash
 codex mcp add overleaf \
-  --env OVERLEAF_GIT_TOKEN=olp_your_token \
-  --env OVERLEAF_COOKIE=your_overleaf_session2_value \
+  --env OVERLEAF_COOKIE=your_cookie_value \
   -- node /path/to/TexMex/dist/index.js
 ```
 
@@ -122,8 +136,8 @@ or add it to `~/.codex/config.toml` directly:
 [mcp_servers.overleaf]
 command = "node"
 args = ["/path/to/TexMex/dist/index.js"]
-env = { OVERLEAF_GIT_TOKEN = "olp_your_token", OVERLEAF_COOKIE = "your_overleaf_session2_value" }
-# Cloning a large project or compiling can take longer than Codex's 60 s default.
+env = { OVERLEAF_COOKIE = "your_cookie_value" }
+# Downloading a large project or compiling can take longer than Codex's 60 s default.
 tool_timeout_sec = 300
 ```
 
@@ -138,7 +152,7 @@ file of your client:
     "overleaf": {
       "command": "node",
       "args": ["/path/to/TexMex/dist/index.js"],
-      "env": { "OVERLEAF_GIT_TOKEN": "olp_your_token" }
+      "env": { "OVERLEAF_COOKIE": "your_cookie_value" }
     }
   }
 }
@@ -147,11 +161,11 @@ file of your client:
 ### Check the setup
 
 ```bash
-OVERLEAF_GIT_TOKEN=olp_your_token node /path/to/TexMex/dist/index.js check https://www.overleaf.com/project/<id>
+OVERLEAF_COOKIE=your_cookie_value node /path/to/TexMex/dist/index.js check https://www.overleaf.com/project/<id>
 ```
 
-`check` verifies git, the working directory, the token (by contacting the project's Git remote), the
-cookie and `latexmk`, and explains what to fix.
+`check` verifies git, the working directory, your credentials, access to that project and `latexmk`,
+and explains what to fix.
 
 ## Using it
 
@@ -180,14 +194,14 @@ and ask before pushing unless you already told them to push.
 | `get_outline` | Main file, included files, section tree with labels and `file:line`, static reference/citation/file checks |
 | `get_status` | Pending local changes, conflicts, how current the copy is, where it lives on disk |
 | `get_diff` | Unified diff of pending changes, or of everything since a given commit |
-| `get_history` | Recent commits (including edits made in the Overleaf editor) with changed files |
+| `get_history` | Recent versions with changed files (full Overleaf history with a Git token; versions TexMex saw in free mode) |
 | `compile` | Compile locally (`latexmk`) or on Overleaf; parsed errors/warnings with locations |
 | `get_compile_log` | Tail of the raw log of the last compile, or lines matching a pattern |
 | `write_file` | Create or overwrite a text file |
 | `edit_file` | Replace an exact, unique piece of text (or all occurrences) |
 | `delete_file` / `move_file` | Delete or move/rename files and folders |
 | `import_file` | Copy a file from your computer (e.g. a generated figure) into the project |
-| `push_changes` | Commit all pending changes and push them to Overleaf, merging co-authors' edits first |
+| `push_changes` | Publish all pending changes to Overleaf, merging co-authors' edits first |
 | `discard_changes` | Throw away pending changes to some paths, or all of them (also aborts a conflicted merge) |
 
 ### Compiling
@@ -220,29 +234,37 @@ the version on Overleaf
 ```
 
 The agent edits the file to the intended text and calls `push_changes` again (it refuses while markers
-remain). `discard_changes` with `all: true` abandons the local edits instead. Each push becomes a single
-commit on top of Overleaf's history with the message you give.
+remain). `discard_changes` with `all: true` abandons the local edits instead.
+
+With a Git token, each push is one commit on top of Overleaf's history with the message you give, and
+Git itself rejects the push if Overleaf changed in the meantime. In free mode, TexMex downloads and
+merges Overleaf's latest version immediately before uploading, then uploads each changed file (which
+replaces that file on Overleaf, keeping its history). A co-author typing in **the same file** during
+those few seconds could have their newest keystrokes replaced, so push when you are not both editing
+the same file at that moment.
 
 ## Configuration
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `OVERLEAF_GIT_TOKEN` | — | Overleaf Git token. Required to download and push projects. |
-| `OVERLEAF_COOKIE` | — | `overleaf_session2` cookie value (or a full `Cookie:` header). Enables account project list, name lookup and compiling on Overleaf. |
+| `OVERLEAF_COOKIE` | — | `overleaf_session2` cookie value (or a full `Cookie:` header). Enough on its own with a free account: sync, push, project list, name lookup, compiling on Overleaf. |
+| `OVERLEAF_GIT_TOKEN` | — | Optional Overleaf Git token (paid plans): sync through the Git bridge instead. |
+| `OVERLEAF_SYNC_MODE` | `auto` | `git` (Git bridge), `web` (cookie) or `auto` (git if a token is set, else web). Applies to projects downloaded from now on. |
 | `OVERLEAF_PROJECTS` | — | Aliases: `thesis=<id or URL>,paper=<id>` or JSON `{"thesis": "<id>"}`. |
 | `OVERLEAF_URL` | `https://www.overleaf.com` | Base URL of Overleaf (change for Server Pro). |
 | `OVERLEAF_GIT_URL` | `https://git.overleaf.com` | Git bridge base URL. For Server Pro defaults to `<OVERLEAF_URL>/git`. |
 | `TEXMEX_WORKDIR` | `~/.texmex` | Where working copies (`projects/`) and build output (`builds/`) are stored. |
 | `TEXMEX_READ_ONLY` | `false` | `true` removes every tool that edits files or pushes. |
-| `TEXMEX_AUTO_SYNC_SECONDS` | `300` | Re-fetch from Overleaf before a tool runs if the last fetch is older than this; `0` disables automatic fetching. Only fast-forwards; never merges on its own. |
-| `TEXMEX_GIT_AUTHOR_NAME` / `TEXMEX_GIT_AUTHOR_EMAIL` | your git config | Author of pushed commits (Overleaf attributes pushes to the token's account). |
+| `TEXMEX_AUTO_SYNC_SECONDS` | `300` | Re-fetch from Overleaf before a tool runs if the last fetch is older than this; `0` disables automatic fetching. Only fast-forwards; never merges on its own. (In free mode each fetch downloads the project zip.) |
+| `TEXMEX_GIT_AUTHOR_NAME` / `TEXMEX_GIT_AUTHOR_EMAIL` | your git config | Author of local commits (Overleaf attributes changes to your account either way). |
 | `TEXMEX_LATEXMK` | `latexmk` | Path to `latexmk`. |
 | `TEXMEX_COMPILE_TIMEOUT_SECONDS` | `180` | Local compile timeout. |
-| `TEXMEX_GIT_TIMEOUT_SECONDS` | `300` | Timeout for git network operations. |
+| `TEXMEX_GIT_TIMEOUT_SECONDS` | `300` | Timeout for git operations. |
 | `TEXMEX_ALLOW_LATEXMKRC` | `false` | Let local compiles read `latexmkrc` files (see Security). |
 
-**Self-hosted Overleaf (Server Pro)**: set `OVERLEAF_URL=https://overleaf.example.edu`; the Git bridge is
-assumed at `https://overleaf.example.edu/git` unless you set `OVERLEAF_GIT_URL`.
+**Self-hosted Overleaf**: set `OVERLEAF_URL=https://overleaf.example.edu` (and use the `overleaf.sid`
+cookie). With Server Pro's Git bridge, it is assumed at `https://overleaf.example.edu/git` unless you set
+`OVERLEAF_GIT_URL`.
 
 **Tip**: if you want the agent's own file tools (or your editor) to see the working copies, point
 `TEXMEX_WORKDIR` at a folder inside your workspace, e.g. `TEXMEX_WORKDIR=~/papers/.texmex`.
@@ -251,7 +273,8 @@ assumed at `https://overleaf.example.edu/git` unless you set `OVERLEAF_GIT_URL`.
 
 - The Git token is passed to git through environment configuration scoped to the Overleaf Git host; it
   is not stored in `.git/config`, not placed on the command line and scrubbed from error messages. The
-  session cookie is only ever sent to `OVERLEAF_URL`.
+  session cookie is only sent to `OVERLEAF_URL` (and its sibling subdomains, e.g. a separate real-time
+  host), never to other sites such as the PDF download domain.
 - File tools are confined to the project: absolute paths, `..`, symlinks leaving the project and the
   `.git` directory are rejected.
 - Local compiles run on a copy of the project with **shell escape disabled** and **without
@@ -265,7 +288,11 @@ assumed at `https://overleaf.example.edu/git` unless you set `OVERLEAF_GIT_URL`.
 ## Troubleshooting
 
 - **"Overleaf rejected the Git token"** — generate a new token; tokens can be revoked or expire.
-- **"403 / Access denied"** — the account has no Git integration (plan) or is not a collaborator.
+- **"403 / Access denied"** — with a Git token: the plan has no Git integration, or you are not a
+  collaborator. Remove the token to use the free cookie mode.
+- **"rate-limiting downloads"** — Overleaf allows about 10 project downloads per minute; wait a minute.
+- **Free mode stopped working after an Overleaf update** — it relies on the editor's internal endpoints;
+  please open an issue with the error message.
 - **"The Overleaf session cookie is invalid or has expired"** — copy a fresh `overleaf_session2` value.
 - **Tool calls time out in Codex** — raise `tool_timeout_sec` (see above); the first clone of a big
   project and compiles can take a while.
@@ -279,7 +306,7 @@ assumed at `https://overleaf.example.edu/git` unless you set `OVERLEAF_GIT_URL`.
 ```bash
 npm install
 npm run build        # compile TypeScript to dist/
-npm test             # vitest; uses local bare repos and a git http-backend as a fake Overleaf
+npm test             # vitest; fake Overleaf: bare repos, a git http-backend, and an in-memory website
 npm run typecheck
 npm run smoke        # start dist/index.js over stdio and list its tools, like an MCP client
 ```
@@ -292,14 +319,17 @@ Source layout:
 | `src/server.ts` | MCP tool and prompt definitions |
 | `src/workspace.ts` | Git working copy: clone, sync/merge, push, status, diff, history |
 | `src/context.ts` | Project resolution (IDs, URLs, names, aliases) and per-project locking |
-| `src/overleafWeb.ts` | Session-cookie client for project listing and compiling on Overleaf |
+| `src/transport.ts` | Syncing with Overleaf: Git bridge, or zip download + upload (free mode) |
+| `src/overleafWeb.ts` | Session-cookie client: projects, zip, uploads/deletes, real-time file tree, compiling |
 | `src/compile.ts` | Local `latexmk` runs, Overleaf compiles, result formatting |
 | `src/latexLog.ts` | LaTeX / BibTeX / Biber log parser |
 | `src/outline.ts` | LaTeX structure extraction and static checks |
 
 ## Limitations
 
-- Requires Overleaf's Git integration; free overleaf.com accounts without it cannot sync.
+- Free mode, listing projects by name and compiling on Overleaf use the Overleaf editor's own,
+  undocumented endpoints (verified against Overleaf's open-source code, but Overleaf can change them).
 - Only files are synced. Project settings (compiler, main document), comments, tracked changes and chat
-  are not accessible through Git.
-- Compiling on Overleaf and listing projects by name depend on undocumented web endpoints.
+  are not accessible.
+- In free mode a rename is uploaded as a new file plus a deletion, so that file's Overleaf history
+  starts over.

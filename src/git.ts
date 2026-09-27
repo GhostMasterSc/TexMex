@@ -15,6 +15,8 @@ export interface GitRunOptions {
   allowFail?: boolean;
   /** Set author/committer identity (needed for commits and merges). */
   identity?: boolean;
+  /** Extra environment variables (applied last). */
+  env?: Record<string, string>;
 }
 
 export class GitError extends UserError {
@@ -108,6 +110,7 @@ export class GitRunner {
   async run(args: string[], opts: GitRunOptions = {}): Promise<GitResult> {
     const env = this.baseEnv();
     if (opts.identity) Object.assign(env, await this.identity());
+    if (opts.env) Object.assign(env, opts.env);
     const timeout = opts.timeoutMs ?? this.config.gitTimeoutMs;
 
     const result = await new Promise<GitResult & { error?: NodeJS.ErrnoException & { killed?: boolean } }>(
@@ -153,7 +156,7 @@ export function describeGitFailure(args: string[], output: string, hasToken: boo
   if (/could not read Username|terminal prompts disabled|Authentication failed|HTTP Basic: Access denied|\b401\b/i.test(output)) {
     return hasToken
       ? `${base}\n\nOverleaf rejected the Git token. Create a new one under Overleaf → Account Settings → Git Integration and update OVERLEAF_GIT_TOKEN.`
-      : `${base}\n\nOVERLEAF_GIT_TOKEN is not set. Create a token under Overleaf → Account Settings → Git Integration and add it to the MCP server's environment.`;
+      : `${base}\n\nNo Overleaf credentials are configured. Set OVERLEAF_COOKIE (your overleaf_session2 browser cookie; works with free accounts) or OVERLEAF_GIT_TOKEN (Overleaf → Account Settings → Git Integration; paid plans).`;
   }
   if (/\b403\b|forbidden/i.test(output)) {
     return `${base}\n\nAccess denied. Git integration requires an Overleaf plan that includes it, and you must be a collaborator on the project.`;

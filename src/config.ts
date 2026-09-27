@@ -1,7 +1,15 @@
 import os from "node:os";
 import path from "node:path";
 
+export type SyncMode = "auto" | "git" | "web";
+
 export interface Config {
+  /**
+   * How projects are synced: "git" uses Overleaf's Git bridge (paid plans),
+   * "web" uses the editor's own endpoints with the session cookie (works on
+   * free accounts). "auto" picks git when a token is set, otherwise web.
+   */
+  syncMode: SyncMode;
   /** Overleaf Git authentication token (Account settings → Git integration). */
   gitToken?: string;
   /** Username sent with the token. Overleaf always uses "git". */
@@ -107,7 +115,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const workdir = path.resolve(
     expandHome(env.TEXMEX_WORKDIR?.trim() || path.join(os.homedir(), ".texmex")),
   );
+  const mode = (env.OVERLEAF_SYNC_MODE?.trim().toLowerCase() || "auto") as SyncMode;
+  if (!["auto", "git", "web"].includes(mode)) {
+    throw new Error(`OVERLEAF_SYNC_MODE must be "auto", "git" or "web" (got "${env.OVERLEAF_SYNC_MODE}").`);
+  }
   return {
+    syncMode: mode,
     gitToken: env.OVERLEAF_GIT_TOKEN?.trim() || undefined,
     gitUsername: env.OVERLEAF_GIT_USERNAME?.trim() || "git",
     gitBaseUrl,
@@ -124,4 +137,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     gitTimeoutMs: parseNumber(env.TEXMEX_GIT_TIMEOUT_SECONDS, 300) * 1000,
     allowLatexmkrc: parseBool(env.TEXMEX_ALLOW_LATEXMKRC, false),
   };
+}
+
+/** Which sync method a new working copy should use. */
+export function chooseSyncMode(config: Config): "git" | "web" {
+  if (config.syncMode !== "auto") return config.syncMode;
+  if (config.gitToken) return "git";
+  return config.cookie ? "web" : "git";
 }

@@ -254,8 +254,10 @@ export function createServer(config: Config, opts: { fetch?: typeof fetch } = {}
       }
       for (const id of await texmex.localProjectIds()) add(id, await texmex.registry.name(id), "local");
 
-      if (!config.gitToken) {
-        notes.push("OVERLEAF_GIT_TOKEN is not set, so projects cannot be downloaded or pushed. Create one under Overleaf → Account Settings → Git Integration.");
+      if (!config.gitToken && !config.cookie) {
+        notes.push(
+          "No Overleaf credentials are configured, so projects cannot be downloaded or pushed. Set OVERLEAF_COOKIE (works with free accounts) or OVERLEAF_GIT_TOKEN (paid plans).",
+        );
       }
       if (!rows.size) {
         return text(
@@ -592,7 +594,7 @@ export function createServer(config: Config, opts: { fetch?: typeof fetch } = {}
     {
       title: "Project history",
       description:
-        "List recent versions of the project on Overleaf (newest first) with author, time and changed files. Edits made in the Overleaf editor appear as commits too (usually titled \"Update on Overleaf.\").",
+        "List recent versions of the project (newest first) with author, time and changed files. With a Git token this is Overleaf's full Git history; with the free cookie-based sync it lists the versions TexMex has downloaded or pushed.",
       inputSchema: {
         project: projectArg,
         limit: z.number().int().min(1).max(200).optional().describe("Number of commits. Default 15."),
@@ -911,7 +913,7 @@ export function createServer(config: Config, opts: { fetch?: typeof fetch } = {}
       {
         title: "Push changes to Overleaf",
         description:
-          "Publish all local changes to Overleaf as one commit, after merging any newer changes collaborators made on Overleaf. Collaborators see the result immediately. If their edits conflict with yours, nothing is pushed and the files get conflict markers to resolve first.",
+          "Publish all local changes to Overleaf, after merging any newer changes collaborators made on Overleaf. Collaborators see the result immediately. If their edits conflict with yours, nothing is pushed and the files get conflict markers to resolve first. (With a Git token this is one commit with your message; with the free cookie-based sync each changed file is uploaded and the message is only kept locally.)",
         inputSchema: {
           project: projectArg,
           message: z.string().min(1).describe("Short description of the change (shown in Overleaf's history)."),

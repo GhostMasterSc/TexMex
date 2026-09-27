@@ -1,9 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { Config } from "./config.js";
+import { chooseSyncMode, type Config } from "./config.js";
 import { UserError } from "./errors.js";
 import { GitError, GitRunner, type GitRunOptions } from "./git.js";
 import { pathExists, safeProjectPath } from "./files.js";
+import type { OverleafWeb } from "./overleafWeb.js";
+import { GitTransport, WebTransport, type Transport } from "./transport.js";
 
 export type ChangeKind = "added" | "modified" | "deleted" | "renamed" | "conflicted";
 
@@ -91,16 +93,47 @@ export class Workspace {
   /** Epoch ms of the last successful fetch in this process (0 = never). */
   lastFetch = 0;
 
+  private transportCache?: Transport;
+
   constructor(
     private readonly config: Config,
     private readonly git: GitRunner,
     readonly projectId: string,
+    private readonly web?: OverleafWeb,
   ) {
     this.dir = path.join(config.workdir, "projects", projectId);
   }
 
   get remoteUrl(): string {
     return `${this.config.gitBaseUrl}/${this.projectId}`;
+  }
+
+  /** Git bridge or Overleaf website — fixed per working copy once it exists. */
+  async transport(): Promise<Transport> {
+    if (this.transportCache) return this.transportCache;
+    const cloned = await this.isCloned();
+    let kind: "git" | "web";
+    if (cloned) {
+      const mode = await this.g(["config", "--get", "texmex.transport"], { allowFail: true });
+      kind = mode.stdout.trim() === "web" ? "web" : "git";
+    } else {
+      kind = chooseSyncMode(this.config);
+    }
+    let transport: Transport;
+    if (kind === "web") {
+      if (!this.web) {
+        throw new UserError(
+          cloned
+            ? "This project was downloaded through the Overleaf website, which needs OVERLEAF_COOKIE. Set it again (or delete the local copy to switch to Git)."
+            : "Syncing through the Overleaf website needs OVERLEAF_COOKIE (your overleaf_session2 browser cookie).",
+        );
+      }
+      transport = new WebTransport(this.git, this.web, this.projectId);
+    } else {
+      transport = new GitTransport(this.git, this.remoteUrl);
+    }
+    if (cloned) this.transportCache = transport;
+    return transport;
   }
 
   private g(args: string[], opts: GitRunOptions = {}) {
@@ -123,9 +156,11 @@ export class Workspace {
     }
     await fs.mkdir(path.dirname(this.dir), { recursive: true });
     const tmp = `${this.dir}.partial-${process.pid}-${Date.now()}`;
+    const transport = await this.transport();
     try {
-      await this.git.run(["clone", "--quiet", "--", this.remoteUrl, tmp]);
+      await transport.create(tmp);
       await fs.rename(tmp, this.dir);
+      this.transportCache = transport;
     } catch (err) {
       await fs.rm(tmp, { recursive: true, force: true });
       throw err;
@@ -170,7 +205,7 @@ export class Workspace {
   }
 
   async fetch(): Promise<void> {
-    await this.g(["fetch", "--quiet", "--prune", "origin"]);
+    await (await this.transport()).fetch(this.dir, await this.branch());
     this.lastFetch = Date.now();
   }
 
@@ -414,29 +449,26 @@ export class Workspace {
       await this.commit(["-m", msg]);
 
       const branch = await this.branch();
-      const pushed = await this.g(["push", "--porcelain", "origin", `HEAD:refs/heads/${branch}`], {
-        allowFail: true,
-      });
-      if (pushed.code === 0) {
-        const commit = (await this.revParse("HEAD")) ?? "";
-        // Keep the remote-tracking ref in step even if git didn't update it.
+      const commit = (await this.revParse("HEAD")) ?? "";
+      const undo = async () => {
+        // Make the edits pending again.
+        if (base) await this.g(["reset", "--quiet", "--mixed", base]);
+        else await this.g(["update-ref", "-d", "HEAD"]);
+      };
+      let outcome: "ok" | "rejected";
+      try {
+        outcome = await (await this.transport()).publish(this.dir, branch, base ?? "", commit);
+      } catch (err) {
+        await undo();
+        throw err;
+      }
+      if (outcome === "ok") {
+        // Overleaf now has this version; record it as the latest known remote state.
         await this.g(["update-ref", await this.remoteRef(), commit]);
         this.lastFetch = Date.now();
         return { state: "pushed", commit, files: staged, remoteChanges };
       }
-
-      // Undo the commit so the edits are pending again, then decide whether to retry.
-      if (base) await this.g(["reset", "--quiet", "--mixed", base]);
-      else await this.g(["update-ref", "-d", "HEAD"]);
-      const output = `${pushed.stdout}\n${pushed.stderr}`;
-      if (/fetch first|non-fast-forward|\[rejected\]/.test(output) && !/remote rejected/.test(output)) continue;
-      throw new GitError(
-        `Overleaf rejected the push:\n${output.trim()}`,
-        ["push"],
-        pushed.code,
-        pushed.stdout,
-        pushed.stderr,
-      );
+      await undo();
     }
     throw new UserError("The project kept changing on Overleaf while pushing. Wait a moment and try again.");
   }

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { commandExists } from "./compile.js";
-import type { Config } from "./config.js";
+import { chooseSyncMode, type Config } from "./config.js";
 import { TexMex } from "./context.js";
 import { errorMessage } from "./errors.js";
 
@@ -37,8 +37,11 @@ export async function runCheck(config: Config, projectRef?: string): Promise<num
     bad(`Cannot write to ${config.workdir}: ${errorMessage(err)}`);
   }
 
+  const mode = chooseSyncMode(config);
   if (config.gitToken) ok("OVERLEAF_GIT_TOKEN is set");
-  else bad("OVERLEAF_GIT_TOKEN is not set (Overleaf → Account Settings → Git Integration → Generate token)");
+  else if (config.cookie) info("OVERLEAF_GIT_TOKEN not set — using the free, cookie-based sync");
+  else bad("No credentials: set OVERLEAF_COOKIE (free accounts) or OVERLEAF_GIT_TOKEN (paid plans)");
+  info(`New projects sync via ${mode === "git" ? "the Git bridge" : "the Overleaf website (session cookie)"}`);
 
   if (texmex.web) {
     try {
@@ -60,14 +63,19 @@ export async function runCheck(config: Config, projectRef?: string): Promise<num
   if (projectRef) {
     try {
       const project = await texmex.resolve(projectRef);
-      const ws = texmex.workspace(project.id);
-      await texmex.git.run(["ls-remote", "--heads", "--", ws.remoteUrl]);
-      ok(`Git access to project ${project.name ? `"${project.name}" ` : ""}(${project.id}) works`);
+      const label = `${project.name ? `"${project.name}" ` : ""}(${project.id})`;
+      if (mode === "git") {
+        await texmex.git.run(["ls-remote", "--heads", "--", texmex.workspace(project.id).remoteUrl]);
+        ok(`Git access to project ${label} works`);
+      } else if (texmex.web) {
+        const files = await texmex.web.projectEntities(project.id);
+        ok(`Access to project ${label} works (${files.length} files)`);
+      }
     } catch (err) {
       bad(`Project ${projectRef}: ${errorMessage(err)}`);
     }
   } else {
-    info("Pass a project ID or URL (texmex-mcp check <project>) to test Git access to it.");
+    info("Pass a project ID or URL (texmex-mcp check <project>) to test access to it.");
   }
 
   console.log(failures ? `\n${failures} problem(s) found.` : "\nAll good.");
