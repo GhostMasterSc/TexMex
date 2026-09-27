@@ -19,6 +19,8 @@ export class FakeOverleafWeb {
   readonly requests: string[] = [];
   /** Behave like overleaf.com for a session without access: connect, then drop the socket. */
   rejectSocket = false;
+  /** Answer the next N zip downloads with HTTP 429, like Overleaf's rate limiter. */
+  rateLimitNext = 0;
   handshakes = 0;
   private nextId = 1;
   private sid = 0;
@@ -147,6 +149,10 @@ export class FakeOverleafWeb {
         `<html><head><meta name="ol-csrfToken" content="csrf-1"><meta name="ol-wsUrl" content="/socket.io"><meta name="ol-project_id" content="${pid}"></head></html>`,
         { headers: { "content-type": "text/html" } },
       );
+    }
+    if (p === `/Project/${pid}/download/zip` && this.rateLimitNext > 0) {
+      this.rateLimitNext--;
+      return new Response("Too Many Requests", { status: 429 });
     }
     if (p === `/Project/${pid}/download/zip`) {
       const entries: Record<string, Uint8Array> = {};

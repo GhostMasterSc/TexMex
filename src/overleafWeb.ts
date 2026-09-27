@@ -118,6 +118,8 @@ export class OverleafWeb {
     readonly baseUrl: string,
     private readonly cookie: string,
     private readonly fetchImpl: FetchLike = fetch,
+    /** Waits before retrying a rate-limited download (Overleaf allows 10 per minute and sends no Retry-After). */
+    private readonly rateLimitDelaysMs: number[] = [5_000, 10_000, 20_000],
   ) {}
 
   /**
@@ -269,9 +271,18 @@ export class OverleafWeb {
 
   /** Download the whole project as a zip (the editor's "Download → Source"). */
   async downloadZip(projectId: string): Promise<Buffer> {
-    const res = await this.request(`/Project/${encodeURIComponent(projectId)}/download/zip`);
+    const url = `/Project/${encodeURIComponent(projectId)}/download/zip`;
+    let res = await this.request(url);
+    for (const delay of this.rateLimitDelaysMs) {
+      if (res.status !== 429) break;
+      await res.body?.cancel();
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      res = await this.request(url);
+    }
     if (res.status === 404 || res.status === 403) await this.explainNoAccess();
-    if (res.status === 429) throw new UserError("Overleaf is rate-limiting downloads (10 per minute). Wait a minute and try again.");
+    if (res.status === 429) {
+      throw new UserError("Overleaf allows 10 project downloads per minute and that limit is reached. Wait a minute and try again.");
+    }
     if (!res.ok) throw new UserError(`Downloading the project from Overleaf failed (HTTP ${res.status}).`);
     return Buffer.from(await res.arrayBuffer());
   }

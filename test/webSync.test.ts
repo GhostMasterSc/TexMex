@@ -4,7 +4,7 @@ import path from "node:path";
 import { zipSync } from "fflate";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
-import { decodeSocketPayload } from "../src/overleafWeb.js";
+import { OverleafWeb, decodeSocketPayload } from "../src/overleafWeb.js";
 import { extractZip } from "../src/transport.js";
 import { FakeOverleafWeb } from "./fakeWeb.js";
 import { SEED_FILES, connect, type Harness } from "./helpers.js";
@@ -139,6 +139,16 @@ describe("free accounts (session cookie, no Git token)", () => {
     expect(r.isError).toBe(true);
     expect(r.text).toContain("session cookie is invalid or has expired");
     await stale.close();
+  });
+});
+
+describe("rate limiting", () => {
+  it("waits and retries when Overleaf rate-limits downloads", async () => {
+    const web = new OverleafWeb("https://www.overleaf.com", "overleaf_session2=good", site.fetch, [1, 1, 1]);
+    site.rateLimitNext = 2;
+    expect(extractZip(await web.downloadZip(ID)).has("main.tex")).toBe(true);
+    site.rateLimitNext = 5;
+    await expect(web.downloadZip(ID)).rejects.toThrow("10 project downloads per minute");
   });
 });
 
