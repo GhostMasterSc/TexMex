@@ -41,7 +41,7 @@ Overleaf. There are two ways to talk to Overleaf:
 | | **Free** (session cookie) | **Git bridge** (Git token) |
 | --- | --- | --- |
 | Overleaf plan | any, including **free** | paid plans / institutional licenses / Server Pro |
-| Credential | `OVERLEAF_COOKIE` (your browser session) | `OVERLEAF_GIT_TOKEN` (+ optional cookie) |
+| Credential | your browser session cookie (saved by `setup`) | `OVERLEAF_GIT_TOKEN` (+ optional cookie) |
 | Download | the editor's *Download → Source* zip | `git fetch` |
 | Upload | the editor's *Upload* feature, one changed file at a time; deletions via the file tree | `git push` (one commit) |
 | History (`get_history`) | versions TexMex downloaded or pushed | Overleaf's full Git history |
@@ -70,6 +70,8 @@ npx -y github:GhostMasterSc/TexMex setup
    nvm.
 
 Restart Claude Code / Codex (or run `/mcp` in Claude Code) and ask *"List my Overleaf projects"*.
+To diagnose problems, run `npx -y github:GhostMasterSc/TexMex check <project URL>`: it tests your
+login, access to that project, git and `latexmk`, and explains what to fix.
 
 When your Overleaf login expires, run the same command again and paste a fresh cookie; nothing else
 needs to change. Options: `--client claude|codex|all` (default: all found) and `--scope user|local|project`
@@ -144,8 +146,7 @@ project `.mcp.json`:
 }
 ```
 
-Run `/mcp` inside Claude Code to check that the `overleaf` server is connected. The two bundled prompts
-are available as `/mcp__overleaf__fix_compile_errors` and `/mcp__overleaf__review_recent_changes`.
+Run `/mcp` inside Claude Code to check that the `overleaf` server is connected.
 
 ### Check the setup
 
@@ -159,8 +160,8 @@ and explains what to fix.
 ## Using it
 
 Tell the agent which project to use. Anything that identifies it works: the URL from your browser
-(`https://www.overleaf.com/project/64a1…`), the bare ID, the project's name (with `OVERLEAF_COOKIE`),
-or an alias you defined in `OVERLEAF_PROJECTS`.
+(`https://www.overleaf.com/project/64a1…`), the bare ID, the project's name, or an alias you defined
+in `OVERLEAF_PROJECTS`.
 
 - *"Open my Overleaf project https://www.overleaf.com/project/64a1… and give me an outline."*
 - *"Compile the thesis and fix every error. Show me the diff before pushing."*
@@ -170,6 +171,9 @@ or an alias you defined in `OVERLEAF_PROJECTS`.
 
 Edits are **not visible on Overleaf until `push_changes`**. TexMex instructs agents to show you the diff
 and ask before pushing unless you already told them to push.
+
+In Claude Code, two ready-made prompts are available as `/mcp__overleaf__fix_compile_errors` and
+`/mcp__overleaf__review_recent_changes`.
 
 ### Tools
 
@@ -202,7 +206,7 @@ and ask before pushing unless you already told them to push.
   `fontspec`/`polyglossia`/`unicode-math`, LuaLaTeX for `\directlua`, otherwise pdfLaTeX) or can be set.
 - `where: "overleaf"` compiles on Overleaf's servers with the project's own settings (compiler, TeX Live
   version, main document), exactly as collaborators see it. It compiles the **last pushed** version and
-  needs `OVERLEAF_COOKIE`.
+  needs the cookie.
 - `where: "auto"` (default) compiles locally when you have unpushed changes and `latexmk` is available,
   otherwise on Overleaf if the cookie is configured, otherwise locally.
 
@@ -284,7 +288,8 @@ cookie). With Server Pro's Git bridge, it is assumed at `https://overleaf.exampl
 - **"Overleaf rejected the Git token"** — generate a new token; tokens can be revoked or expire.
 - **"403 / Access denied"** — with a Git token: the plan has no Git integration, or you are not a
   collaborator. Remove the token to use the free cookie mode.
-- **"rate-limiting downloads"** — Overleaf allows about 10 project downloads per minute; wait a minute.
+- **"Overleaf allows 10 project downloads per minute"** — TexMex already waited and retried for about
+  35 seconds; wait a minute and try again.
 - **Free mode stopped working after an Overleaf update** — it relies on the editor's internal endpoints;
   please open an issue with the error message.
 - **"Failed to connect" / `CONNECTION_CLOSED` in `/mcp`** — the app could not start the server,
@@ -294,8 +299,8 @@ cookie). With Server Pro's Git bridge, it is assumed at `https://overleaf.exampl
   restart the app.
 - **"The Overleaf session cookie is invalid or has expired"** — run setup again with a fresh
   `overleaf_session2` value.
-- **Tool calls time out in Codex** — raise `tool_timeout_sec` (see above); the first clone of a big
-  project and compiles can take a while.
+- **Tool calls time out in Codex** — `setup` sets `tool_timeout_sec = 300`; with a manual config, add
+  it yourself (see above). The first download of a big project and compiles can take a while.
 - **Behind a corporate proxy** — git honours `HTTPS_PROXY`; for the cookie features on current Node 22/24 releases, also
   set `NODE_USE_ENV_PROXY=1` so Node's `fetch` uses it.
 - Local copies are ordinary Git repositories under `TEXMEX_WORKDIR/projects/<id>`; deleting one is safe
@@ -334,3 +339,5 @@ Source layout:
   are not accessible.
 - In free mode a rename is uploaded as a new file plus a deletion, so that file's Overleaf history
   starts over.
+- `setup` has been tested on Linux with Claude Code and Codex; it should work on macOS, but Windows is
+  untested. If registration fails, it prints the configuration to add by hand.
