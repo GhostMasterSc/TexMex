@@ -30,7 +30,7 @@ type FetchLike = typeof fetch;
 const USER_AGENT = "texmex-mcp (+https://github.com/GhostMasterSc/TexMex)";
 
 const EXPIRED_COOKIE =
-  "The Overleaf session cookie is invalid or has expired. Log in to Overleaf in your browser and copy a fresh `overleaf_session2` cookie value into OVERLEAF_COOKIE.";
+  "The Overleaf session cookie is invalid or has expired. Log in to Overleaf in your browser, copy a fresh `overleaf_session2` cookie value, and run TexMex's setup again (texmex-mcp setup) or update OVERLEAF_COOKIE.";
 
 export function decodeHtmlEntities(s: string): string {
   return s
@@ -116,7 +116,7 @@ export class OverleafWeb {
 
   constructor(
     readonly baseUrl: string,
-    private readonly cookie: string,
+    private readonly cookie: string | (() => string),
     private readonly fetchImpl: FetchLike = fetch,
     /** Waits before retrying a rate-limited download (Overleaf allows 10 per minute and sends no Retry-After). */
     private readonly rateLimitDelaysMs: number[] = [5_000, 10_000, 20_000],
@@ -137,7 +137,8 @@ export class OverleafWeb {
 
   private cookieHeader(): string {
     const cookies = new Map<string, string>();
-    for (const part of this.cookie.split(";")) {
+    const configured = typeof this.cookie === "function" ? this.cookie() : this.cookie;
+    for (const part of configured.split(";")) {
       const eq = part.indexOf("=");
       if (eq > 0) cookies.set(part.slice(0, eq).trim(), part.slice(eq + 1).trim());
     }

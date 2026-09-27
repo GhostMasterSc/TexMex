@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { commandExists, compileLocal, compileOnOverleaf, formatCompileOutcome, type Engine } from "./compile.js";
-import type { Config } from "./config.js";
+import { hasCookie, type Config } from "./config.js";
 import { TexMex, type ProjectRef } from "./context.js";
 import { UserError, errorMessage } from "./errors.js";
 import {
@@ -254,7 +254,8 @@ export function createServer(config: Config, opts: { fetch?: typeof fetch } = {}
       }
       for (const id of await texmex.localProjectIds()) add(id, await texmex.registry.name(id), "local");
 
-      if (!config.gitToken && !config.cookie) {
+      notes.push(...config.credentialWarnings);
+      if (!config.gitToken && !hasCookie(config)) {
         notes.push(
           "No Overleaf credentials are configured, so projects cannot be downloaded or pushed. Set OVERLEAF_COOKIE (works with free accounts) or OVERLEAF_GIT_TOKEN (paid plans).",
         );

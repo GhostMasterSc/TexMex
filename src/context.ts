@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { Config } from "./config.js";
+import { cookieSource, type Config } from "./config.js";
 import { UserError } from "./errors.js";
 import { GitRunner } from "./git.js";
 import { OverleafWeb, type WebProject } from "./overleafWeb.js";
@@ -80,7 +80,8 @@ export class TexMex {
     opts: { fetch?: typeof fetch } = {},
   ) {
     this.git = new GitRunner(config);
-    if (config.cookie) this.web = new OverleafWeb(config.webBaseUrl, config.cookie, opts.fetch);
+    const cookie = cookieSource(config);
+    if (cookie) this.web = new OverleafWeb(config.webBaseUrl, cookie, opts.fetch);
     this.registry = new Registry(path.join(config.workdir, "registry.json"));
   }
 

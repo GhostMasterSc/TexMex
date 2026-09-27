@@ -51,13 +51,56 @@ TexMex picks the Git bridge when a token is set and the free route otherwise (ov
 `OVERLEAF_SYNC_MODE`). Both give the agent the same tools. Listing projects by name and compiling on
 Overleaf always use the cookie.
 
-## Requirements
+## Quick start
 
-- **Node.js 20+** and **git** (git is used for the local working copies in both modes).
-- An Overleaf account — the free plan works.
-- Optional: a TeX distribution with `latexmk` (TeX Live, MacTeX or MiKTeX) for local compiles.
+You need **Node.js 20 or newer** ([nodejs.org](https://nodejs.org), or nvm/fnm/volta) and **git**.
+Then, in a terminal:
 
-## Installation
+```bash
+npx -y github:GhostMasterSc/TexMex setup
+```
+
+`setup` does everything:
+
+1. Asks for your Overleaf login cookie (input is hidden — see [below](#getting-the-cookie) for where to
+   find it), checks it with Overleaf, and saves it to `~/.texmex/cookie`, readable only by you.
+2. Installs TexMex to `~/.texmex/app`, so it starts quickly and also works offline.
+3. Registers it with **Claude Code** and **Codex** (whichever are installed) using the absolute path of
+   your Node.js — so it works even when those apps can't find `node` on their own, which is common with
+   nvm.
+
+Restart Claude Code / Codex (or run `/mcp` in Claude Code) and ask *"List my Overleaf projects"*.
+
+When your Overleaf login expires, run the same command again and paste a fresh cookie; nothing else
+needs to change. Options: `--client claude|codex|all` (default: all found) and `--scope user|local|project`
+for Claude Code (default: user). If you change Node.js versions, run setup again.
+
+Optional: a TeX distribution with `latexmk` (TeX Live, MacTeX or MiKTeX) enables local compiles.
+
+### Getting the cookie
+
+Log in to [overleaf.com](https://www.overleaf.com) in your browser, open the developer tools (F12) →
+*Application* (Chrome/Edge) or *Storage* (Firefox) → *Cookies* → `https://www.overleaf.com`, and copy
+the **value** of `overleaf_session2`.
+
+> The cookie works like your password while that browser session lasts. Only paste it into `setup`
+> (or your own config), never into a chat or a file you share or commit. Logging out of that browser
+> session revokes it. Sessions last a few days; when yours expires, TexMex tells you, and you run setup
+> again.
+
+Self-hosted Overleaf (Community Edition / Server Pro) names the cookie `overleaf.sid` by default; set
+`OVERLEAF_URL` and paste `overleaf.sid=<value>`.
+
+### Git token (optional, paid plans)
+
+If your plan includes Git integration you can use it instead: **Account Settings → Git Integration →
+Generate token** (starts with `olp_`), provided as `OVERLEAF_GIT_TOKEN` (or `OVERLEAF_GIT_TOKEN_FILE`).
+The token is sent only to the Overleaf Git host and is never written into the working copies'
+`.git/config`. Keep the cookie as well if you want to list projects by name and compile on Overleaf.
+
+## Manual configuration
+
+Use this for Claude Desktop and other MCP clients, or if you prefer to configure things yourself.
 
 ```bash
 git clone https://github.com/GhostMasterSc/TexMex.git
@@ -65,55 +108,37 @@ cd TexMex
 npm install          # installs dependencies and builds dist/
 ```
 
-The server entry point is `dist/index.js`. Use its **absolute path** in the client configuration below
-(`pwd` prints it).
+Put the cookie value in a file (e.g. `~/.texmex/cookie`, which TexMex reads by default) or pass it as
+`OVERLEAF_COOKIE`. In the examples, replace `/path/to/node` with the output of `which node` (Windows:
+`where node`) and `/path/to/TexMex` with the absolute path of your clone. Using the **absolute path of
+`node`** matters: MCP clients start servers with their own environment, which often does not include
+nvm's `node`.
 
-## Credentials
-
-### Session cookie (free — all you need)
-
-Log in to [overleaf.com](https://www.overleaf.com) in your browser, open the developer tools (F12) →
-*Application* (Chrome/Edge) or *Storage* (Firefox) → *Cookies* → `https://www.overleaf.com`, and copy
-the **value** of `overleaf_session2`. Provide it to TexMex as `OVERLEAF_COOKIE`.
-
-> The cookie works like your password while that browser session lasts. Keep it out of files you
-> commit, never share it, and log out of that browser session to revoke it. Sessions last a few days;
-> when yours expires (or you log out), TexMex tells you and you copy a fresh value.
-
-Self-hosted Overleaf (Community Edition / Server Pro) names the cookie `overleaf.sid` by default; pass
-it as `OVERLEAF_COOKIE="overleaf.sid=<value>"` and set `OVERLEAF_URL`.
-
-### Git token (optional, paid plans)
-
-If your plan includes Git integration you can use it instead: **Account Settings → Git Integration →
-Generate token** (starts with `olp_`), provided as `OVERLEAF_GIT_TOKEN`. The token is sent only to the
-Overleaf Git host and is never written into the working copies' `.git/config`. Add the cookie as well
-if you want to list projects by name and compile on Overleaf.
-
-## Connect it to your agent
-
-In the examples, replace `/path/to/TexMex` with the absolute path of your clone and
-`your_cookie_value` with the `overleaf_session2` value. (Git-token users: use
-`OVERLEAF_GIT_TOKEN=olp_…` in addition or instead.)
-
-### Claude Code
+Claude Code:
 
 ```bash
-claude mcp add overleaf --scope user \
-  --env OVERLEAF_COOKIE=your_cookie_value \
-  -- node /path/to/TexMex/dist/index.js
+claude mcp add-json -s user overleaf '{"command":"/path/to/node","args":["/path/to/TexMex/dist/index.js"]}'
 ```
 
-Or share it with a team in a project's `.mcp.json` (Claude Code expands `${VAR}` from each user's
-environment, so no secrets are committed):
+Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.overleaf]
+command = "/path/to/node"
+args = ["/path/to/TexMex/dist/index.js"]
+# Downloading a large project or compiling can take longer than Codex's 60 s default.
+tool_timeout_sec = 300
+```
+
+Claude Desktop (`claude_desktop_config.json`, via Settings → Developer → Edit Config) or a shared
+project `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "overleaf": {
-      "command": "node",
-      "args": ["/path/to/TexMex/dist/index.js"],
-      "env": { "OVERLEAF_COOKIE": "${OVERLEAF_COOKIE}" }
+      "command": "/path/to/node",
+      "args": ["/path/to/TexMex/dist/index.js"]
     }
   }
 }
@@ -122,46 +147,10 @@ environment, so no secrets are committed):
 Run `/mcp` inside Claude Code to check that the `overleaf` server is connected. The two bundled prompts
 are available as `/mcp__overleaf__fix_compile_errors` and `/mcp__overleaf__review_recent_changes`.
 
-### OpenAI Codex
-
-```bash
-codex mcp add overleaf \
-  --env OVERLEAF_COOKIE=your_cookie_value \
-  -- node /path/to/TexMex/dist/index.js
-```
-
-or add it to `~/.codex/config.toml` directly:
-
-```toml
-[mcp_servers.overleaf]
-command = "node"
-args = ["/path/to/TexMex/dist/index.js"]
-env = { OVERLEAF_COOKIE = "your_cookie_value" }
-# Downloading a large project or compiling can take longer than Codex's 60 s default.
-tool_timeout_sec = 300
-```
-
-### Claude Desktop and other MCP clients
-
-Add the server to `claude_desktop_config.json` (Settings → Developer → Edit Config), or the equivalent
-file of your client:
-
-```json
-{
-  "mcpServers": {
-    "overleaf": {
-      "command": "node",
-      "args": ["/path/to/TexMex/dist/index.js"],
-      "env": { "OVERLEAF_COOKIE": "your_cookie_value" }
-    }
-  }
-}
-```
-
 ### Check the setup
 
 ```bash
-OVERLEAF_COOKIE=your_cookie_value node /path/to/TexMex/dist/index.js check https://www.overleaf.com/project/<id>
+node /path/to/TexMex/dist/index.js check https://www.overleaf.com/project/<id>
 ```
 
 `check` verifies git, the working directory, your credentials, access to that project and `latexmk`,
@@ -248,7 +237,9 @@ the same file at that moment.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OVERLEAF_COOKIE` | — | `overleaf_session2` cookie value (or a full `Cookie:` header). Enough on its own with a free account: sync, push, project list, name lookup, compiling on Overleaf. |
+| `OVERLEAF_COOKIE_FILE` | `~/.texmex/cookie` if it exists | File containing the cookie (written by `setup`). Re-read when it changes, so refreshing the login needs no restart. |
 | `OVERLEAF_GIT_TOKEN` | — | Optional Overleaf Git token (paid plans): sync through the Git bridge instead. |
+| `OVERLEAF_GIT_TOKEN_FILE` | — | File containing the Git token. |
 | `OVERLEAF_SYNC_MODE` | `auto` | `git` (Git bridge), `web` (cookie) or `auto` (git if a token is set, else web). Applies to projects downloaded from now on. |
 | `OVERLEAF_PROJECTS` | — | Aliases: `thesis=<id or URL>,paper=<id>` or JSON `{"thesis": "<id>"}`. |
 | `OVERLEAF_URL` | `https://www.overleaf.com` | Base URL of Overleaf (change for Server Pro). |
@@ -271,6 +262,9 @@ cookie). With Server Pro's Git bridge, it is assumed at `https://overleaf.exampl
 
 ## Security
 
+- `setup` stores the cookie in `~/.texmex/cookie` with owner-only permissions and registers only the
+  file's path with Claude Code / Codex, so the secret does not appear in their config files or in
+  `claude mcp get`.
 - The Git token is passed to git through environment configuration scoped to the Overleaf Git host; it
   is not stored in `.git/config`, not placed on the command line and scrubbed from error messages. The
   session cookie is only sent to `OVERLEAF_URL` (and its sibling subdomains, e.g. a separate real-time
@@ -293,7 +287,13 @@ cookie). With Server Pro's Git bridge, it is assumed at `https://overleaf.exampl
 - **"rate-limiting downloads"** — Overleaf allows about 10 project downloads per minute; wait a minute.
 - **Free mode stopped working after an Overleaf update** — it relies on the editor's internal endpoints;
   please open an issue with the error message.
-- **"The Overleaf session cookie is invalid or has expired"** — copy a fresh `overleaf_session2` value.
+- **"Failed to connect" / `CONNECTION_CLOSED` in `/mcp`** — the app could not start the server,
+  almost always because it cannot find `node` (typical with nvm, or when the app was started before
+  Node.js was installed). Run `npx -y github:GhostMasterSc/TexMex setup` again (it registers the
+  absolute path of `node`), or use the absolute path of `node` as the command in a manual config. Then
+  restart the app.
+- **"The Overleaf session cookie is invalid or has expired"** — run setup again with a fresh
+  `overleaf_session2` value.
 - **Tool calls time out in Codex** — raise `tool_timeout_sec` (see above); the first clone of a big
   project and compiles can take a while.
 - **Behind a corporate proxy** — git honours `HTTPS_PROXY`; for the cookie features on current Node 22/24 releases, also
@@ -317,6 +317,7 @@ Source layout:
 | File | Purpose |
 | --- | --- |
 | `src/server.ts` | MCP tool and prompt definitions |
+| `src/setup.ts` | `setup` command: login, stable install, registration with Claude Code / Codex |
 | `src/workspace.ts` | Git working copy: clone, sync/merge, push, status, diff, history |
 | `src/context.ts` | Project resolution (IDs, URLs, names, aliases) and per-project locking |
 | `src/transport.ts` | Syncing with Overleaf: Git bridge, or zip download + upload (free mode) |

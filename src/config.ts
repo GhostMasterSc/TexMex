@@ -1,5 +1,7 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { UserError } from "./errors.js";
 
 export type SyncMode = "auto" | "git" | "web";
 
@@ -20,6 +22,10 @@ export interface Config {
   webBaseUrl: string;
   /** Full `Cookie` header value for the Overleaf web app, if configured. */
   cookie?: string;
+  /** File the cookie is read from (re-read when it changes), when not given directly. */
+  cookieFile?: string;
+  /** Problems reading credential files, shown by list_projects and `check`. */
+  credentialWarnings: string[];
   /** Where local working copies and build outputs live. */
   workdir: string;
   /** Friendly name → project id. */
@@ -109,23 +115,56 @@ function defaultGitUrl(webBaseUrl: string): string {
   return `${webBaseUrl}/git`;
 }
 
+/** Where `texmex-mcp setup` stores the cookie, and where it is looked for by default. */
+export function defaultCookieFile(workdir: string): string {
+  return path.join(workdir, "cookie");
+}
+
+function readSecretFile(file: string, label: string, warnings: string[]): string | undefined {
+  try {
+    return fs.readFileSync(file, "utf8").trim() || undefined;
+  } catch (err) {
+    warnings.push(`Cannot read ${label} ${file}: ${(err as Error).message}`);
+    return undefined;
+  }
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const webBaseUrl = trimSlash(env.OVERLEAF_URL?.trim() || DEFAULT_WEB_URL);
   const gitBaseUrl = trimSlash(env.OVERLEAF_GIT_URL?.trim() || defaultGitUrl(webBaseUrl));
   const workdir = path.resolve(
     expandHome(env.TEXMEX_WORKDIR?.trim() || path.join(os.homedir(), ".texmex")),
   );
+  const credentialWarnings: string[] = [];
+
+  // Secrets can come from files so they never appear in MCP client configs.
+  let cookie = normalizeCookie(env.OVERLEAF_COOKIE);
+  let cookieFile: string | undefined;
+  if (!cookie) {
+    const explicit = env.OVERLEAF_COOKIE_FILE?.trim();
+    const candidate = explicit ? path.resolve(expandHome(explicit)) : defaultCookieFile(workdir);
+    if (explicit || fs.existsSync(candidate)) {
+      cookieFile = candidate;
+      cookie = normalizeCookie(readSecretFile(candidate, "OVERLEAF_COOKIE_FILE", credentialWarnings));
+    }
+  }
+  let gitToken = env.OVERLEAF_GIT_TOKEN?.trim() || undefined;
+  if (!gitToken && env.OVERLEAF_GIT_TOKEN_FILE?.trim()) {
+    gitToken = readSecretFile(path.resolve(expandHome(env.OVERLEAF_GIT_TOKEN_FILE.trim())), "OVERLEAF_GIT_TOKEN_FILE", credentialWarnings);
+  }
   const mode = (env.OVERLEAF_SYNC_MODE?.trim().toLowerCase() || "auto") as SyncMode;
   if (!["auto", "git", "web"].includes(mode)) {
     throw new Error(`OVERLEAF_SYNC_MODE must be "auto", "git" or "web" (got "${env.OVERLEAF_SYNC_MODE}").`);
   }
   return {
     syncMode: mode,
-    gitToken: env.OVERLEAF_GIT_TOKEN?.trim() || undefined,
+    gitToken,
     gitUsername: env.OVERLEAF_GIT_USERNAME?.trim() || "git",
     gitBaseUrl,
     webBaseUrl,
-    cookie: normalizeCookie(env.OVERLEAF_COOKIE),
+    cookie,
+    cookieFile,
+    credentialWarnings,
     workdir,
     projectAliases: parseProjectAliases(env.OVERLEAF_PROJECTS),
     gitAuthorName: env.TEXMEX_GIT_AUTHOR_NAME?.trim() || undefined,
@@ -143,5 +182,34 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 export function chooseSyncMode(config: Config): "git" | "web" {
   if (config.syncMode !== "auto") return config.syncMode;
   if (config.gitToken) return "git";
-  return config.cookie ? "web" : "git";
+  return hasCookie(config) ? "web" : "git";
+}
+
+export function hasCookie(config: Config): boolean {
+  return !!(config.cookie || config.cookieFile);
+}
+
+/**
+ * The cookie to send: a fixed value, or a reader that picks up a refreshed
+ * cookie file without restarting the server.
+ */
+export function cookieSource(config: Config): string | (() => string) | undefined {
+  const file = config.cookieFile;
+  if (!file) return config.cookie;
+  let cached = config.cookie;
+  let stamp = -1;
+  return () => {
+    let mtime: number;
+    try {
+      mtime = fs.statSync(file).mtimeMs;
+    } catch {
+      throw new UserError(`Cannot read the Overleaf cookie file ${file}. Run TexMex's setup again (texmex-mcp setup).`);
+    }
+    if (mtime !== stamp || !cached) {
+      cached = normalizeCookie(fs.readFileSync(file, "utf8"));
+      stamp = mtime;
+    }
+    if (!cached) throw new UserError(`The Overleaf cookie file ${file} is empty. Run TexMex's setup again (texmex-mcp setup).`);
+    return cached;
+  };
 }

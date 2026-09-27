@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { commandExists } from "./compile.js";
-import { chooseSyncMode, type Config } from "./config.js";
+import { chooseSyncMode, hasCookie, type Config } from "./config.js";
 import { TexMex } from "./context.js";
 import { errorMessage } from "./errors.js";
 
@@ -39,8 +39,10 @@ export async function runCheck(config: Config, projectRef?: string): Promise<num
 
   const mode = chooseSyncMode(config);
   if (config.gitToken) ok("OVERLEAF_GIT_TOKEN is set");
-  else if (config.cookie) info("OVERLEAF_GIT_TOKEN not set — using the free, cookie-based sync");
-  else bad("No credentials: set OVERLEAF_COOKIE (free accounts) or OVERLEAF_GIT_TOKEN (paid plans)");
+  else if (hasCookie(config)) info("OVERLEAF_GIT_TOKEN not set — using the free, cookie-based sync");
+  else bad("No Overleaf login: run `texmex-mcp setup`, or set OVERLEAF_COOKIE (free accounts) or OVERLEAF_GIT_TOKEN (paid plans)");
+  if (config.cookieFile) info(`Cookie is read from ${config.cookieFile}`);
+  for (const warning of config.credentialWarnings) bad(warning);
   info(`New projects sync via ${mode === "git" ? "the Git bridge" : "the Overleaf website (session cookie)"}`);
 
   if (texmex.web) {
