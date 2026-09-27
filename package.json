@@ -1,0 +1,47 @@
+{
+  "name": "texmex-mcp",
+  "version": "0.1.0",
+  "description": "MCP server that lets Claude, Codex and other AI agents read, edit, compile and push Overleaf LaTeX projects",
+  "type": "module",
+  "bin": {
+    "texmex-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node -e \"require('fs').chmodSync('dist/index.js', 0o755)\"",
+    "prepare": "npm run build",
+    "dev": "tsc -p tsconfig.json --watch",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "keywords": [
+    "mcp",
+    "overleaf",
+    "latex",
+    "claude",
+    "codex",
+    "model-context-protocol"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GhostMasterSc/TexMex.git"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.2"
+  }
+}
